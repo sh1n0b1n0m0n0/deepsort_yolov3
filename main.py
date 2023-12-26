@@ -12,6 +12,20 @@ from optical_flow import draw_flow, draw_hsv
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
 
+def update_window(img, frame_position: int):
+    font_draw_number = cv2.FONT_HERSHEY_SIMPLEX
+    draw_text_postion = (int(960 * 0.01), int(540 * 0.05))
+    window_name = 'demo'
+
+    output_image_frame = cv2.putText(img=img,
+                                     text=f'frame: {frame_position} f:forward, d:backward, p:pause, q:exit',
+                                     org=draw_text_postion,
+                                     fontFace=font_draw_number,
+                                     fontScale=0.8, color=(0, 255, 0), thickness=2)
+
+    cv2.imshow(window_name, output_image_frame)
+
+
 def onMouse(event, x, y, flags, param):
     if event == cv2.EVENT_LBUTTONDOWN:
         print('x = %d, y = %d' % (x, y))
@@ -59,9 +73,6 @@ def main():
     down_count = 0
     up_count = 0
 
-    font_draw_number = cv2.FONT_HERSHEY_SIMPLEX
-    draw_text_postion = (int(960 * 0.01), int(540 * 0.05))
-
     # for yolov3 or yolov5
     # detector = Detector()
     detector = YoloDarknet(cfg_path=Path('D:/whole/nfb_axle_cam/model/yolo.cfg'),
@@ -70,48 +81,46 @@ def main():
                            darknet_dir=Path('D:/projects/darknet/Release/')
                            )
 
-    video_path = "D:/whole/nfb_axle_cam/2023-11-30/20231115T153000.mp4"
+    video_path = "D:/whole/nfb_axle_cam/2023-11-30/cropped/NFB_axle_cam_20231114.mp4"
     # capture = cv2.VideoCapture(video_path)
     capture = create_from_file_system(video_path)
-
+    capture.set_position(0)
     # uncomment if you need Optical Flow
     # _, prev = capture.read()
     # prev_gray = cv2.cvtColor(prev, cv2.COLOR_BGR2GRAY)
     trackers_info = []
-
+    is_paused = False
     while True:
-        # _, im = capture.read()
-        im = capture.read_current()
-        if im is None:
+        # _, img = capture.read()
+        img = capture.read_current()
+        frame_id = capture.get_current_position()
+        if img is None:
             break
-        # 1920x1080->960x540
-        im = cv2.resize(im, (960, 540))
+        img = cv2.resize(img, (960, 540))
         list_bboxs = []
         # bboxes = detector.detect(im)
-        classes, confs, rects = detector.detect(im)
+        classes, confs, rects = detector.detect(img)
         bboxes = [(x[2][0], x[2][1], x[2][2], x[2][3], x[0], x[1]) for x in list(zip(classes, confs, rects)) if
                   x[0] == 'axle']
 
         if len(bboxes) > 0:
-            list_bboxs = tracker.update(bboxes, im)
-            output_image_frame = tracker.draw_bboxes(im, list_bboxs, line_thickness=None)
+            list_bboxs = tracker.update(bboxes, img)
+            output_image_frame = tracker.draw_bboxes(img, list_bboxs, line_thickness=None)
         else:
-            output_image_frame = im
+            output_image_frame = img
 
         # output_image_frame = cv2.add(output_image_frame, color_polygons_image)
 
         if len(list_bboxs) > 0:
             for item_bbox in list_bboxs:
-                frame_id = capture.get_current_position()
                 x1, y1, x2, y2, label, track_id = item_bbox
-
                 y1_offset = int(y1 + ((y2 - y1) * 0.6))
                 y = y1_offset
                 x = x1
-                print(f'track_id: {track_id}, {label},  x={x}, y={y}, frame_id: {frame_id}')
-
-                trackers_info.append({'track_id': track_id, 'class': label, "track_x": x, "track_y": y, "frame_id": frame_id})
-
+                # print(f'track_id: {track_id}, {label},  x={x}, y={y}, frame_id: {frame_id}')
+                trackers_info.append(
+                    {'track_id': track_id, 'class': label, "track_x": x, "track_y": y,
+                     "frame_id": frame_id})
                 if polygon_mask_blue_and_yellow[y, x] == 1:
                     if track_id not in list_overlapping_blue_polygon:
                         list_overlapping_blue_polygon.append(track_id)
@@ -155,55 +164,48 @@ def main():
             list_overlapping_blue_polygon.clear()
             list_overlapping_yellow_polygon.clear()
 
-        text_draw = 'DOWN: ' + str(down_count) + ' , UP: ' + str(up_count)
-        output_image_frame = cv2.putText(img=output_image_frame, text=text_draw,
-                                         org=draw_text_postion,
-                                         fontFace=font_draw_number,
-                                         fontScale=1, color=(255, 255, 255), thickness=2)
+        if is_paused:
+            update_window(output_image_frame, capture.get_current_position())
+            key = cv2.waitKey(0)
+            if key == ord('p'):
+                is_paused = False
+            elif key == ord('f'):
+                forward = capture.get_current_position() + 1
+                capture.set_position(forward)
+                update_window(output_image_frame, forward)
+            elif key == ord('d'):
+                backward = capture.get_current_position() - 1
+                capture.set_position(backward)
+                update_window(output_image_frame, backward)
+            elif key == ord('q'):
+                cv2.destroyAllWindows()
+                break
+        else:
+            update_window(output_image_frame, capture.get_current_position())
+            if capture.can_read_next():
+                capture.read_next()
+            else:
+                capture.set_position(0)
+
+            key = cv2.waitKey(30)
+            if key == ord('p'):
+                is_paused = True
+                capture.set_position(capture.get_current_position())
+            elif key == ord('q'):
+                cv2.destroyAllWindows()
+                break
 
         # uncomment if you need Optical Flow
         # gray = cv2.cvtColor(original_img, cv2.COLOR_BGR2GRAY)
         # flow = cv2.calcOpticalFlowFarneback(prev_gray, gray, None, 0.5, 3, 15, 3, 5, 1.2, 0)
         # prev_gray = gray
-
-        key = cv2.waitKey(30) & 0xff
-
-        if key == ord('p'):
-            while True:
-                key = cv2.waitKey(0) & 0xff
-
-                if key == ord('f'):
-                    curr_frame_poss = capture.get_current_position()
-                    capture.set_position(curr_frame_poss + 1)
-                    print(capture.get_current_position())
-
-                if key == ord('d'):
-                    curr_frame_poss = capture.get_current_position()
-                    capture.set_position(curr_frame_poss - 1)
-                    print(capture.get_current_position())
-
-                if key == ord('p'):
-                    break
-
-                if key == ord('q'):
-                    capture.release()
-                    cv2.destroyAllWindows()
-                    break
-
-        if key == ord('q'):
-            capture.release()
-            cv2.destroyAllWindows()
-            break
-        print(capture.get_current_position())
-        capture.read_next()
-        cv2.imshow('demo', output_image_frame)
         # uncomment if you need Optical Flow
         # cv2.imshow('flow', draw_flow(gray, flow))
         # cv2.imshow('flow HSV', draw_hsv(flow))
         # cv2.setMouseCallback('demo', onMouse)
         # cv2.waitKey(1)
 
-    dump_trackers(trackers_info, video_path)
+    # dump_trackers(trackers_info, video_path)
 
 
 if __name__ == '__main__':

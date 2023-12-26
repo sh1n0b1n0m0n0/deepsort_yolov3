@@ -1,3 +1,4 @@
+inexlib@git+ssh://git@github.com/izdeveloper/inexlib.git@master
 certifi
 chardet
 cycler
