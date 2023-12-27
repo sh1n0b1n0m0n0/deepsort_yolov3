@@ -185,7 +185,8 @@ def main():
             if capture.can_read_next():
                 capture.read_next()
             else:
-                capture.set_position(0)
+                cv2.destroyAllWindows()
+                break
 
             key = cv2.waitKey(30)
             if key == ord('p'):
@@ -205,7 +206,8 @@ def main():
         # cv2.setMouseCallback('demo', onMouse)
         # cv2.waitKey(1)
 
-    # dump_trackers(trackers_info, video_path)
+    # cv2.destroyAllWindows()
+    dump_trackers(trackers_info, video_path)
 
 
 if __name__ == '__main__':
